@@ -1,6 +1,6 @@
-export async function request<T>(path: string, body?: object): Promise<T> {
-  const response = await fetch('/api/'+path, body === undefined ? {cache:'no-store'} : {
-    method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(body),
+export async function request<T>(path: string, body?: object, signal?: AbortSignal): Promise<T> {
+  const response = await fetch('/api/'+path, body === undefined ? {cache:'no-store',signal} : {
+    method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(body), signal,
   })
   return read<T>(response)
 }

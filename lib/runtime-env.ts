@@ -20,8 +20,8 @@ export type RuntimeEnv = {
   DB?: SqlDatabase
   BUCKET?: MediaBucket
   LOCAL_ADMIN?: string
-  SITES_TRUSTED_INGRESS?: string
-  ADMIN_EMAIL?: string
+  ADMIN_PASSWORD_HASH?: string
+  ADMIN_SESSION_SECRET?: string
   MIDTRANS_SERVER_KEY?: string
   MIDTRANS_MODE?: string
 }
@@ -142,8 +142,8 @@ export function getRuntimeEnv(): RuntimeEnv {
     DB: database,
     BUCKET: database ? createTursoBucket(database) : undefined,
     LOCAL_ADMIN: process.env.LOCAL_ADMIN,
-    SITES_TRUSTED_INGRESS: process.env.SITES_TRUSTED_INGRESS,
-    ADMIN_EMAIL: process.env.ADMIN_EMAIL,
+    ADMIN_PASSWORD_HASH: process.env.ADMIN_PASSWORD_HASH,
+    ADMIN_SESSION_SECRET: process.env.ADMIN_SESSION_SECRET,
     MIDTRANS_SERVER_KEY: process.env.MIDTRANS_SERVER_KEY,
     MIDTRANS_MODE: process.env.MIDTRANS_MODE,
   }

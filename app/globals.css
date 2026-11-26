@@ -280,10 +280,20 @@ input[type="radio"], input[type="checkbox"] { accent-color: var(--green); flex: 
 .order-totals { background: #f3ede5; padding: 12px; border-radius: 10px; display: grid; gap: 6px; font-size: 14px; }
 .order-totals > div:last-of-type { border-top: 1px solid #dfd5c8; padding-top: 8px; color: var(--deep); font-size: 16px; }
 
+.checkout-lines { list-style: none; margin: 0 0 6px; padding: 0; display: grid; gap: 5px; font-size: 14px; }
+.checkout-lines li { display: flex; justify-content: space-between; gap: 12px; color: var(--muted); }
+.checkout-lines li strong { color: var(--ink); font-variant-numeric: tabular-nums; }
+.checkout-back { border: 0; background: none; padding: 2px 0; font-size: 13px; font-weight: 700; color: var(--green); text-decoration: underline; text-underline-offset: 3px; }
+.checkout-bar { position: sticky; bottom: calc(-21px - env(safe-area-inset-bottom)); z-index: 1; display: grid; gap: 10px; padding: 12px 0 21px; background: var(--paper); }
+.promo-error { color: #992e25; font-size: 13px; }
+.checkout-form input[aria-invalid="true"] { border-color: #d4897f; background: #fdf6f4; }
+
 .receipt { display: grid; text-align: center; justify-items: center; gap: 10px; color: var(--muted); line-height: 1.45; }
 .receipt-mark { background: var(--mint); border-radius: 100px; width: 58px; height: 58px; display: grid; place-items: center; color: var(--green); }
 .receipt h3, .receipt-total { color: var(--deep); }
 .receipt-total { font-size: 22px; }
+.receipt-items { list-style: none; margin: 4px 0; padding: 10px 0; display: grid; gap: 6px; width: 100%; border-top: 1px dashed var(--line); border-bottom: 1px dashed var(--line); font-size: 14px; text-align: left; }
+.receipt-items li { display: flex; justify-content: space-between; gap: 12px; }
 .payment-qr { width: 240px; height: 240px; aspect-ratio: 1; background: #fff; padding: 10px; border: 1px solid var(--line); border-radius: 10px; }
 
 .offer-list { display: grid; gap: 9px; }
@@ -361,16 +371,22 @@ input[type="radio"], input[type="checkbox"] { accent-color: var(--green); flex: 
 .access-card { width: min(410px, calc(100vw - 45px)); background: var(--white); border: 1px solid var(--line); border-radius: 16px; padding: 28px; display: grid; gap: 13px; justify-items: start; }
 .access-card h1, .panel h1 { letter-spacing: -0.04em; color: var(--ink); }
 .access-card p { color: var(--muted); line-height: 1.5; }
+.access-card .notice { width: 100%; justify-content: flex-start; }
+.login-form { display: grid; gap: 12px; width: 100%; margin-top: 4px; }
+.login-form label { display: grid; gap: 6px; font-size: 14px; font-weight: 700; }
+.login-form input { min-width: 0; width: 100%; border: 1px solid #d6cbc0; border-radius: 8px; padding: 9px 10px; background: var(--white); color: var(--ink); font-size: 15px; min-height: 44px; }
 
 .panel { display: grid; grid-template-columns: 224px minmax(0, 1fr); min-height: 100dvh; }
 .panel-side { position: sticky; top: 0; align-self: start; min-height: 100dvh; background: var(--white); border-right: 1px solid var(--line); padding: 25px 15px 18px; display: flex; flex-direction: column; gap: 19px; }
 .panel-side .brand { margin-left: 7px; }
 .panel-caption { margin: 11px 0 -9px 8px; font-size: 10px; font-weight: 700; letter-spacing: 0.16em; color: var(--muted); }
 .panel-side nav { display: grid; gap: 6px; }
-.panel-side button, .panel-side > a:last-child { display: flex; gap: 9px; align-items: center; min-height: 44px; padding: 10px; text-align: left; border: 0; border-radius: 8px; background: none; color: #4a3f38; font-size: 14px; font-weight: 700; }
+.panel-side button, .panel-side > a, .panel-logout { display: flex; gap: 9px; align-items: center; min-height: 44px; padding: 10px; text-align: left; border: 0; border-radius: 8px; background: none; color: #4a3f38; font-size: 14px; font-weight: 700; }
 .panel-side button.on { background: var(--green); color: #fff; }
-.panel-side button:not(.on):hover, .panel-side > a:last-child:hover { background: var(--mint); color: var(--green); }
-.panel-side > a:last-child { margin-top: auto; }
+.panel-side button:not(.on):hover, .panel-side > a:hover { background: var(--mint); color: var(--green); }
+.panel-side > a { margin-top: auto; }
+.panel-logout { color: #7b6a5f; justify-self: start; }
+.panel-logout:hover { background: #fdefed; color: #992e25; }
 .panel-main { width: min(1190px, 100%); padding: 36px 30px; margin: auto; align-self: start; margin-top: 0; }
 .panel-header { display: flex; align-items: center; justify-content: space-between; gap: 14px; margin-bottom: 25px; padding-bottom: 18px; border-bottom: 1px solid var(--line); }
 .panel-header h1 { font-size: 36px; }
@@ -433,13 +449,14 @@ input[type="radio"], input[type="checkbox"] { accent-color: var(--green); flex: 
 
 @media (max-width: 780px) {
   .panel { grid-template-columns: 1fr; }
-  .panel-side { z-index: 2; min-height: 0; padding: 11px; display: grid; grid-template-columns: 1fr auto; gap: 8px; border-bottom: 1px solid var(--line); border-right: 0; }
+  .panel-side { z-index: 2; min-height: 0; padding: 11px; display: grid; grid-template-columns: 1fr auto auto; gap: 8px; align-items: center; border-bottom: 1px solid var(--line); border-right: 0; }
   .panel-side .brand { margin: 0; }
   .panel-caption { display: none; }
   .panel-side nav { grid-row: 2; grid-column: 1 / -1; display: flex; flex-wrap: wrap; gap: 3px; }
   .panel-side button { padding: 8px 10px; font-size: 13px; gap: 5px; }
   .panel-side button svg { width: 15px; }
-  .panel-side > a:last-child { margin-top: 0; font-size: 13px; padding: 6px 10px; }
+  .panel-side > a { margin-top: 0; font-size: 13px; padding: 6px 10px; }
+  .panel-logout { font-size: 13px; padding: 6px 10px; }
   .panel-main { padding: 20px 13px; }
   .panel-header h1 { font-size: 28px; }
   .panel-header p { font-size: 13px; }

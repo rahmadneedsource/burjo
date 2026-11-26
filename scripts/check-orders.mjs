@@ -1,7 +1,7 @@
 import {createRequire} from 'node:module'
 import {DatabaseSync} from 'node:sqlite'
 import {readFileSync} from 'node:fs'
-import {createHash,randomUUID} from 'node:crypto'
+import {createHash,pbkdf2Sync,randomBytes,randomUUID} from 'node:crypto'
 import assert from 'node:assert/strict'
 const require=createRequire(import.meta.url)
 const {build}=require('esbuild'), qr=require('qrcode'), jsQR=require('jsqr'), {PNG}=require('pngjs')
@@ -21,7 +21,9 @@ const statement=(q,args=[])=>({
  run:async()=>({meta:sql.prepare(q).run(...args)}),
  all:async()=>({results:sql.prepare(q).all(...args)}),
 })
-globalThis.qrisTestEnv={DB:{prepare:statement},ADMIN_EMAIL:'owner@example.test',MIDTRANS_SERVER_KEY:'test-key'}
+const adminPassword='rahasia'
+const adminSalt=randomBytes(16)
+globalThis.qrisTestEnv={DB:{prepare:statement},ADMIN_PASSWORD_HASH:`pbkdf2$sha256$1000$${adminSalt.toString('base64url')}$${pbkdf2Sync(adminPassword,adminSalt,1000,32,'sha256').toString('base64url')}`,ADMIN_SESSION_SECRET:'test-session-secret',MIDTRANS_SERVER_KEY:'test-key'}
 const definition={write:false,bundle:true,format:'esm',platform:'node',define:{'import.meta.env.DEV':'false'}}
 const envPlugin={name:'env',setup(b){b.onResolve({filter:/^(cloudflare:workers|@libsql\/client.*)$/},args=>({path:args.path,namespace:'test'}));b.onLoad({filter:/.*/,namespace:'test'},args=>({contents:args.path.startsWith('@libsql')?'export function createClient(){return null}':'export const env=globalThis.qrisTestEnv'}))}}
 async function module(path,plugins=[]){
@@ -62,17 +64,24 @@ for(const source of [testPayload,fixture('')]){
 }
 
 const origin='https://shop.example.test'
-async function call(path,body,admin=false){
+let cookie=''
+async function call(path,body,admin=true){
  const method=body===undefined?'GET':'POST'
- const headers=admin?{'oai-authenticated-user-id':'owner','oai-authenticated-user-email':'owner@example.test'}:{}
+ const headers=admin&&cookie?{cookie}:{}
  if(method==='POST'){headers.origin=origin;headers['content-type']='application/json'}
  const response=await api[method](new Request(origin+'/api/'+path,{method,headers,body:body===undefined?undefined:JSON.stringify(body)}))
+ const setCookie=response.headers.get('set-cookie')
+ if(setCookie)cookie=setCookie.split(';')[0]
  return {status:response.status,data:await response.json()}
 }
-assert.equal((await call('admin/shop',undefined,true)).status,403)
-globalThis.qrisTestEnv.SITES_TRUSTED_INGRESS='yes'
+assert.equal((await call('admin/shop')).status,403)
+assert.equal((await call('admin/access')).data.allowed,false)
+assert.equal((await call('admin/login',{password:'salah'})).status,401)
+assert.equal((await call('admin/login',{password:adminPassword})).status,200)
+assert.equal((await call('admin/access')).data.allowed,true)
+assert.ok(cookie.startsWith('burjoss_admin='))
 assert.deepEqual((await call('catalog')).data.methods,{whatsapp:true,qris:true,qrisProvider:'midtrans',sandbox:true})
-assert.equal((await call('admin/qris',{revision:1,qrisProvider:'merchant',merchantQris:testPayload})).status,403)
+assert.equal((await call('admin/qris',{revision:1,qrisProvider:'merchant',merchantQris:testPayload},false)).status,403)
 assert.equal((await call('admin/qris',{revision:1,qrisProvider:'merchant',merchantQris:testPayload.slice(0,-1)},true)).status,400)
 assert.equal((await call('admin/qris',{revision:1,qrisProvider:'merchant',merchantQris:testPayload},true)).data.revision,2)
 const catalog=(await call('catalog')).data
@@ -91,7 +100,7 @@ assert.equal(a.payment,'merchant_pending')
 assert.equal((await call('checkout',first)).data.id,a.id)
 assert.equal((await call('receipt',{id:a.id,key:second.key})).status,404)
 const verify={id:a.id,confirmMerchantPayment:true,reference:'MOCK-001'}
-assert.equal((await call('admin/orders',verify)).status,403)
+assert.equal((await call('admin/orders',verify,false)).status,403)
 assert.equal((await call('admin/orders',{id:a.id,state:'accepted'},true)).status,400)
 assert.equal((await call('admin/orders',verify,true)).status,200)
 assert.equal((await call('admin/orders',verify,true)).status,200)
@@ -111,7 +120,17 @@ assert.equal(legacy.qrisProvider,'midtrans')
 assert.equal(legacy.payment,'paid')
 assert.equal((await call('admin/orders',{...verify,id:legacyId},true)).status,409)
 assert.equal((await call('admin/qris',{revision:2,qrisProvider:'midtrans',merchantQris:testPayload},true)).data.methods.qrisProvider,'midtrans')
-assert.equal((await call('admin/orders')).status,403)
+assert.equal((await call('admin/orders',{id:a.id,state:'accepted'},false)).status,403)
+assert.equal((await call('admin/logout',{})).status,200)
+assert.equal((await call('admin/access')).data.allowed,false)
+assert.equal((await call('admin/login',{password:'typeof'})).status,401)
+assert.equal((await call('admin/login',{password:adminPassword})).status,200)
+assert.equal((await call('admin/access')).data.allowed,true)
+const loginCookie=cookie
+const tampered='burjoss_admin='+loginCookie.split('=')[1].slice(0,-2)+'aa'
+cookie=tampered
+assert.equal((await call('admin/access')).data.allowed,false)
+cookie=loginCookie
 const wa = await call('checkout',{...purchase,method:'whatsapp',address:'',latitude:'-7.05',longitude:'110.43',key:randomUUID()})
 assert.equal(wa.status,201)
 assert.match(new URL(wa.data.whatsapp).searchParams.get('text'),/maps.*-7.05,110.43/)

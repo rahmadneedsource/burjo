@@ -1,7 +1,7 @@
 'use client'
 import { useEffect, useState } from 'react'
 import type { FormEvent } from 'react'
-import { CheckCircle2, ChefHat, ClipboardList, ImagePlus, Pencil, Plus, RefreshCw, Search, Settings2, ShoppingBag, Soup, Tag, Trash2 } from 'lucide-react'
+import { CheckCircle2, ChefHat, ClipboardList, ImagePlus, LogOut, Pencil, Plus, RefreshCw, Search, Settings2, ShoppingBag, Soup, Tag, Trash2 } from 'lucide-react'
 import { Brand, Modal, ProductPhoto } from '../store'
 import { mapLink, validPoint, type DeliveryPoint } from '../../lib/delivery'
 import { categories, fulfillmentNames, orderStates, paymentStates, priceOf, rupiah } from '../../lib/shop'
@@ -43,16 +43,34 @@ export default function Admin() {
   const [error,setError] = useState('')
   const [note,setNote] = useState('')
   const [formError,setFormError] = useState('')
+  const [password,setPassword] = useState('')
+  const [loginBusy,setLoginBusy] = useState(false)
 
   async function loadAccess() {
     setError('')
     try {
       const result = await request<{allowed:boolean}>('admin/access')
       if(result.allowed) setData(await request<AdminShop>('admin/shop'))
+      else setData(null)
       setAccess(result)
     } catch(err) {setError(errorText(err))}
   }
   useEffect(()=>{void loadAccess()},[])
+  async function login(e:FormEvent<HTMLFormElement>) {
+    e.preventDefault()
+    if(loginBusy)return
+    setLoginBusy(true);setError('')
+    try {
+      await request('admin/login',{password})
+      setPassword('')
+      await loadAccess()
+    } catch(err) {setError(errorText(err))}
+    finally {setLoginBusy(false)}
+  }
+  async function logout() {
+    try { await request('admin/logout',{}) } catch { /* The cookie is cleared locally anyway. */ }
+    setAccess(null);setData(null);setPassword('');setError('')
+  }
   async function loadOrders(sync=false,before?:number) {
     setLoadingOrders(true);setError('')
     try {
@@ -112,14 +130,14 @@ export default function Admin() {
     finally{setUploading(false)}
   }
 
-  if(!access?.allowed || !data) return <div className="access-page"><Brand/><div className="access-card"><span className="strip-icon" aria-hidden="true"><ChefHat size={20}/></span><h1>Panel Admin</h1>{error?<><p role="alert">{error}</p><button type="button" className="button outline" onClick={()=>void loadAccess()}>Muat ulang</button></>:!access?<p>Memeriksa akses…</p>:<><p>Panel ini tersedia untuk akun admin BUR JO’SS.</p><a className="button outline" href="/signin-with-chatgpt?return_to=%2Fadmin" target="_top">Masuk dengan ChatGPT</a></>}</div></div>
+  if(!access?.allowed || !data) return <div className="access-page"><Brand/><div className="access-card"><span className="strip-icon" aria-hidden="true"><ChefHat size={20}/></span><h1>Panel Admin</h1>{error&&<p role="alert" className="notice warning">{error}</p>}{access===null&&!error?<p>Memeriksa sesi…</p>:<form className="login-form" onSubmit={login}><label>Kata sandi admin<input type="password" name="password" autoComplete="current-password" required maxLength={200} value={password} onChange={e=>setPassword(e.target.value)} placeholder="Kata sandi panel" autoFocus/></label><button className="button dark wide" disabled={loginBusy}>{loginBusy?'Masuk…':'Masuk'}</button></form>}</div></div>
 
   const shownOrders = orders.filter(o=>orderFilter==='all'||o.state===orderFilter)
   const shownProducts = data.shop.products.filter(p=>(!category||p.category===category)&&p.name.toLowerCase().includes(search.trim().toLowerCase()))
   const {settings} = data.shop
 
   return <div className="panel">
-    <aside className="panel-side"><Brand/><p className="panel-caption">PANEL ADMIN</p><nav aria-label="Navigasi admin">{screens.map(({name,icon:Icon})=><button type="button" className={name===screen?'on':''} key={name} aria-current={name===screen?'page':undefined} onClick={()=>navigate(name)}><Icon size={18} aria-hidden="true"/>{name}</button>)}</nav><a href="/"><ShoppingBag size={17} aria-hidden="true"/> Lihat Toko</a></aside>
+    <aside className="panel-side"><Brand/><p className="panel-caption">PANEL ADMIN</p><nav aria-label="Navigasi admin">{screens.map(({name,icon:Icon})=><button type="button" className={name===screen?'on':''} key={name} aria-current={name===screen?'page':undefined} onClick={()=>navigate(name)}><Icon size={18} aria-hidden="true"/>{name}</button>)}</nav><a href="/"><ShoppingBag size={17} aria-hidden="true"/> Lihat Toko</a><button type="button" className="panel-logout" onClick={()=>void logout()}><LogOut size={17} aria-hidden="true"/> Keluar</button></aside>
     <main className="panel-main"><header className="panel-header"><div><h1>{screen}</h1><p>{{Pesanan:'Kelola pesanan dan pantau pembayaran.',Menu:'Kelola menu, harga, foto, dan ketersediaan.',Promo:'Atur kode diskon untuk pelanggan.',Pengaturan:'Atur kontak, jam buka, dan cara menerima pesanan.'}[screen]}</p></div>
       {screen==='Menu'&&<button type="button" className="button dark" onClick={()=>{setFormError('');setProduct(blankProduct)}}><Plus size={17} aria-hidden="true"/> Tambah Menu</button>}
       {screen==='Promo'&&<button type="button" className="button dark" onClick={()=>{setFormError('');setPromo(blankPromo)}}><Plus size={17} aria-hidden="true"/> Tambah Promo</button>}

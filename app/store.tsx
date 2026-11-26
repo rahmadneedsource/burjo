@@ -1,5 +1,5 @@
 'use client'
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import type { FormEvent, ReactNode } from 'react'
 import { Check, CheckCircle2, ChevronDown, CircleHelp, Clock3, CookingPot, CupSoda, MapPin, MessageCircle, Minus, Plus, QrCode, Search, ShoppingBag, Soup, Tag, Utensils, X } from 'lucide-react'
 import { categories, defaultProducts, defaultSettings, fulfillmentNames, orderStates, paymentStates, priceOf, rupiah } from '../lib/shop'
@@ -110,10 +110,10 @@ export default function Store() {
   const featured = shown.filter(p=>Boolean(p.image))
   const board = shown.filter(p=>!p.image)
   const showCategoryTag = category==='Semua Menu'
-  const cartRows = products.filter(p=>cart[p.id]).map(product=>({product,quantity:cart[product.id]}))
+  const cartRows = useMemo(()=>products.filter(p=>cart[p.id]).map(product=>({product,quantity:cart[product.id]})),[products,cart])
   const count = cartRows.reduce((sum,p)=>sum+p.quantity,0)
   const subtotal = cartRows.reduce((sum,row)=>sum+priceOf(row.product)*row.quantity,0)
-  const units = cartRows.map(row=>({id:row.product.id,quantity:row.quantity}))
+  const units = useMemo(()=>cartRows.map(row=>({id:row.product.id,quantity:row.quantity})),[cartRows])
   const open = catalog.settings.open
   const canCheckout = open && count > 0 && !catalogError && cartRows.every(row=>row.product.available)
   const emptyModes = !catalog.settings.pickup && !catalog.settings.delivery
@@ -138,6 +138,16 @@ export default function Store() {
     const next = {id:result.id,key}
     setTicket(next);storage.set('burjoss-ticket',next)
     setReceipt(result);setReceiptError('');setCart({});setSelectedPromo('');setPanel('receipt')
+  }
+
+  function repeat(items: Receipt['items']) {
+    const next: Cart = {}
+    for (const item of items) {
+      const product = catalog.products.find(p=>p.id===item.id)
+      if (product?.available) next[item.id] = Math.min(25, item.quantity)
+    }
+    if (!Object.keys(next).length) { setToast('Menu pesanan ini sudah tidak tersedia'); return }
+    setCart(next);setSelectedPromo('');setPanel('cart')
   }
 
   return <>
@@ -181,22 +191,24 @@ export default function Store() {
     {panel==='cart' && <Modal title="Keranjang" onClose={()=>setPanel(null)} className="drawer">
       {cartRows.length ? <><div className="cart-list">{cartRows.map(({product,quantity})=><div className="cart-row" key={product.id}><div className="cart-thumb"><ProductPhoto product={product}/></div><div><strong>{product.name}</strong><small>{product.available?rupiah(priceOf(product)*quantity):'Menu sudah habis'}</small></div><Quantity name={product.name} value={quantity} change={n=>change(product,n)}/></div>)}</div><div className="cart-footer"><div><span>Subtotal</span><strong>{rupiah(subtotal)}</strong></div>{!open && <p className="notice warning">Warung sedang tutup.</p>}{emptyModes && <p className="notice warning">Pengambilan dan pengantaran belum tersedia.</p>}<button type="button" className="button dark wide" disabled={!canCheckout||emptyModes} onClick={()=>setPanel('checkout')}>Lanjut ke Checkout</button></div></> : <div className="empty"><ShoppingBag size={35} aria-hidden="true"/><h3>Keranjang masih kosong</h3><p>Tambahkan menu favoritmu dulu.</p><button type="button" className="button dark" onClick={()=>setPanel(null)}>Pilih menu</button></div>}
     </Modal>}
-    {panel==='checkout' && <Checkout catalog={catalog} units={units} defaultPromo={selectedPromo} close={()=>setPanel('cart')} finish={finish}/>}
+    {panel==='checkout' && <Checkout catalog={catalog} rows={cartRows} units={units} defaultPromo={selectedPromo} close={()=>setPanel('cart')} finish={finish}/>}
     {panel==='receipt' && <Modal title="Status Pesanan" onClose={()=>setPanel(null)}>
       {receiptError && <p className="notice warning" role="alert">{receiptError}</p>}
       {receipt ? <div className="receipt"><div className="receipt-mark" aria-hidden="true">{receipt.payment==='paid'?<Check size={27}/>:receipt.method==='qris'?<QrCode size={27}/>:<MessageCircle size={27}/>}</div><h3>{paymentStates[receipt.payment]}</h3><p>#{receipt.id.toUpperCase()} · {orderStates[receipt.state]}</p><strong className="receipt-total">{rupiah(receipt.total)}</strong>
       {receipt.sandbox && <p className="notice warning">QRIS mode uji coba. Gunakan simulator Midtrans.</p>}
       {receipt.qr && <><img className="payment-qr" src={receipt.qr} width={240} height={240} alt="Kode QRIS untuk pesanan ini" referrerPolicy="no-referrer"/><p>Pindai dengan aplikasi bank atau dompet digital. Status diperbarui otomatis.</p></>}
+      {receipt.items.length>0 && <ul className="receipt-items">{receipt.items.map(i=><li key={i.id}><span>{i.quantity}× {i.name}</span><span>{rupiah(i.price*i.quantity)}</span></li>)}</ul>}
       {receipt.qrisPayload && <MerchantQr key={receipt.id} payload={receipt.qrisPayload} orderId={receipt.id} merchantName={receipt.merchantName}/>}
       {receipt.payment==='merchant_pending' && receipt.state==='canceled' && <p>Pesanan ini sudah dibatalkan. Hubungi warung jika pembayaran sudah dikirim.</p>}
       {receipt.payment==='manual' && <p>Buka WhatsApp lalu kirim rincian yang sudah disiapkan untuk konfirmasi ke warung.</p>}
-      {receipt.whatsapp && (receipt.method==='whatsapp'||['paid','failed','expired','merchant_pending'].includes(receipt.payment)) && <a className="button dark wide" href={receipt.whatsapp} target="_blank" rel="noreferrer"><MessageCircle size={18} aria-hidden="true"/> {receipt.method==='whatsapp'?'Buka WhatsApp':receipt.payment==='merchant_pending'&&receipt.state!=='canceled'?'Konfirmasi via WhatsApp':'Hubungi Warung'}</a>}</div> : <p className="muted">Memuat pesanan…</p>}
+      {receipt.whatsapp && (receipt.method==='whatsapp'||['paid','failed','expired','merchant_pending'].includes(receipt.payment)) && <a className="button dark wide" href={receipt.whatsapp} target="_blank" rel="noreferrer"><MessageCircle size={18} aria-hidden="true"/> {receipt.method==='whatsapp'?'Buka WhatsApp':receipt.payment==='merchant_pending'&&receipt.state!=='canceled'?'Konfirmasi via WhatsApp':'Hubungi Warung'}</a>}
+      {['done','canceled'].includes(receipt.state) && <button type="button" className="button outline wide" onClick={()=>repeat(receipt.items)}>Pesan lagi</button>}</div> : <p className="muted">Memuat pesanan…</p>}
     </Modal>}
     {panel==='offers' && <Modal title="Promo" onClose={()=>setPanel(null)}>{catalog.offers.length?<div className="offer-list">{catalog.offers.map(p=><div className="offer" key={p.code}><Tag size={22} aria-hidden="true"/><div><strong>{p.code}</strong><small>Potongan {p.kind==='fixed'?rupiah(p.value):p.value+'%'}{p.min>0?' · Min. '+rupiah(p.min):''}</small></div><button type="button" className="button outline" onClick={()=>{setSelectedPromo(p.code);setPanel('cart')}}>Pakai</button></div>)}</div>:<div className="empty"><Tag size={35} aria-hidden="true"/><h3>Belum ada promo aktif</h3><button type="button" className="button outline" onClick={()=>setPanel(null)}>Kembali ke menu</button></div>}</Modal>}
   </>
 }
 
-function Checkout({catalog,units,defaultPromo,close,finish}: {catalog:Catalog;units:{id:string;quantity:number}[];defaultPromo:string;close:()=>void;finish:(receipt:Receipt,key:string)=>void}) {
+function Checkout({catalog,rows,units,defaultPromo,close,finish}: {catalog:Catalog;rows:{product:Product;quantity:number}[];units:{id:string;quantity:number}[];defaultPromo:string;close:()=>void;finish:(receipt:Receipt,key:string)=>void}) {
   const [mode,setMode] = useState<Mode>(catalog.settings.pickup?'pickup':'delivery')
   const [method,setMethod] = useState<'whatsapp'|'qris'>(catalog.methods.whatsapp?'whatsapp':'qris')
   const [promo,setPromo] = useState(defaultPromo)
@@ -206,26 +218,47 @@ function Checkout({catalog,units,defaultPromo,close,finish}: {catalog:Catalog;un
   const [error,setError] = useState('')
   const [busy,setBusy] = useState(false)
   const [reprice,incReprice] = useState(0)
+  const [deliveryMounted,setDeliveryMounted] = useState(mode==='delivery')
   const key = useRef('')
   const requestLocked = useRef(false)
+  const errorRef = useRef<HTMLParagraphElement>(null)
+  const count = rows.reduce((sum,row)=>sum+row.quantity,0)
+  const promoInvalid = Boolean(applied && quoteErr && /promo/i.test(quoteErr))
+
+  // A fresh idempotency key once the basket changes, so a stale key cannot return an old order.
+  useEffect(()=>{key.current = crypto.randomUUID()},[units])
+  useEffect(()=>{if(error)errorRef.current?.focus()},[error])
 
   useEffect(()=>{
-    let active = true
-    setQuote(null);setQuoteErr('')
-    request<Quote>('quote',{mode,promo:applied,items:units}).then(value=>{if(active)setQuote(value)},err=>{if(active)setQuoteErr(errorText(err))})
-    return ()=>{active=false}
-  },[mode,applied,units,reprice])
+    if(!units.length)return
+    const ctrl = new AbortController()
+    const timer = setTimeout(()=>{
+      setQuote(null);setQuoteErr('')
+      request<Quote>('quote',{mode,promo:applied,items:units},ctrl.signal)
+        .then(value=>{if(!ctrl.signal.aborted)setQuote(value)})
+        .catch(err=>{if(!ctrl.signal.aborted)setQuoteErr(errorText(err))})
+    },140)
+    return()=>{clearTimeout(timer);ctrl.abort()}
+  },[mode,applied,reprice,units])
+
+  function usePromo() {
+    const next = promo.trim().toUpperCase()
+    setQuoteErr('')
+    if(!next) { setApplied('');setPromo('');return }
+    if(next===applied) incReprice(n=>n+1)
+    else { setPromo(next);setApplied(next) }
+  }
 
   async function submit(e:FormEvent<HTMLFormElement>) {
     e.preventDefault()
-    if(!catalog.methods[method]||!quote||requestLocked.current)return
+    if(!catalog.methods[method]||!quote||requestLocked.current||promoInvalid)return
     const fields = Object.fromEntries(new FormData(e.currentTarget))
     const orderKey = key.current || (key.current = crypto.randomUUID())
     requestLocked.current=true;setBusy(true);setError('')
     try {
       const result = await request<Receipt>('checkout',{...fields,key:orderKey,mode,method,qrisProvider:catalog.methods.qrisProvider,qrisSandbox:catalog.methods.sandbox,promo:applied,items:units,expected:quote.total})
-      finish(result,orderKey)
       if(result.method==='whatsapp' && result.whatsapp) window.location.assign(result.whatsapp)
+      finish(result,orderKey)
     } catch(err) {
       const message=errorText(err)
       setError(message)
@@ -234,15 +267,20 @@ function Checkout({catalog,units,defaultPromo,close,finish}: {catalog:Catalog;un
   }
 
   return <Modal title="Checkout" onClose={()=>{if(!busy)close()}} className="drawer"><form className="checkout-form" onSubmit={submit}>
-    <fieldset disabled={busy}><legend>Cara menerima pesanan</legend><div className={deliveryStyles.modes}>{(['pickup','delivery'] as const).filter(m=>catalog.settings[m]).map(m=><label className={deliveryStyles.mode} key={m}><input type="radio" name="mode" value={m} checked={mode===m} onChange={()=>setMode(m)}/>{m==='pickup'?<ShoppingBag size={22}/>:<MapPin size={22}/>}<strong>{fulfillmentNames[m]}</strong><small>{m==='pickup'?'Jemput di warung':catalog.settings.deliveryFee?'Ongkir '+rupiah(catalog.settings.deliveryFee):'Gratis ongkir'}</small></label>)}</div>{mode==='pickup'&&catalog.settings.address&&<p className="muted">{catalog.settings.address}</p>}</fieldset>
-    <fieldset disabled={busy}><legend>Data pemesan</legend><div className="form-grid"><label>Nama<input name="name" required maxLength={80} autoComplete="name" placeholder="Nama kamu"/></label><label>Nomor WhatsApp<input name="phone" type="tel" required maxLength={25} autoComplete="tel" placeholder="08xxxxxxxxxx"/></label></div>{mode==='delivery'&&<DeliveryFields/>}<label>Catatan <span>(opsional)</span><textarea name="notes" maxLength={300} placeholder="Contoh: sambal dipisah"/></label></fieldset>
-    <fieldset disabled={busy}><legend>Kode promo</legend><div className="inline"><input aria-label="Kode promo" maxLength={24} value={promo} onChange={e=>setPromo(e.target.value.toUpperCase())} placeholder="Masukkan kode"/><button type="button" className="button outline" onClick={()=>{const next=promo.trim();if(applied===next)incReprice(n=>n+1);else setApplied(next)}}>Pakai</button>{applied&&<button type="button" className="icon-button" aria-label="Hapus promo" onClick={()=>{setApplied('');setPromo('')}}><X size={18}/></button>}</div>{applied&&quote&&<small className="success">Promo {applied} diterapkan</small>}</fieldset>
+    <fieldset disabled={busy}><legend>Pesananmu · {count} item</legend><ul className="checkout-lines">{rows.map(({product,quantity})=><li key={product.id}><span>{quantity}× {product.name}</span><strong>{rupiah(priceOf(product)*quantity)}</strong></li>)}</ul><button type="button" className="checkout-back" onClick={close}>Ubah keranjang</button></fieldset>
+    <fieldset disabled={busy}><legend>Cara menerima pesanan</legend><div className={deliveryStyles.modes}>{(['pickup','delivery'] as const).filter(m=>catalog.settings[m]).map(m=><label className={deliveryStyles.mode} key={m}><input type="radio" name="mode" value={m} checked={mode===m} onChange={()=>{setMode(m);if(m==='delivery')setDeliveryMounted(true)}}/>{m==='pickup'?<ShoppingBag size={22} aria-hidden="true"/>:<MapPin size={22} aria-hidden="true"/>}<strong>{fulfillmentNames[m]}</strong><small>{m==='pickup'?'Jemput di warung':catalog.settings.deliveryFee?'Ongkir '+rupiah(catalog.settings.deliveryFee):'Gratis ongkir'}</small></label>)}</div>{mode==='pickup'&&catalog.settings.address&&<p className="muted">{catalog.settings.address}</p>}</fieldset>
+    {deliveryMounted&&<div hidden={mode!=='delivery'}><DeliveryFields required={mode==='delivery'}/></div>}
+    <fieldset disabled={busy}><legend>Data pemesan</legend><div className="form-grid"><label>Nama<input name="name" required maxLength={80} autoComplete="name" placeholder="Nama kamu"/></label><label>Nomor WhatsApp<input name="phone" type="tel" inputMode="tel" required maxLength={25} autoComplete="tel" placeholder="08xxxxxxxxxx" pattern="[0-9+()\s-]{8,25}" title="Nomor HP 8–16 digit, contoh 08123456789"/></label></div><label>Catatan <span>(opsional)</span><textarea name="notes" maxLength={300} placeholder="Contoh: sambal dipisah"/></label></fieldset>
+    <fieldset disabled={busy}><legend>Kode promo</legend><div className="inline"><input aria-label="Kode promo" aria-invalid={promoInvalid||undefined} maxLength={24} value={promo} onChange={e=>setPromo(e.target.value.toUpperCase())} placeholder="Masukkan kode" autoComplete="off"/><button type="button" className="button outline" onClick={usePromo}>Pakai</button>{applied&&<button type="button" className="icon-button" aria-label="Hapus promo" onClick={()=>{setApplied('');setPromo('');setQuoteErr('')}}><X size={18} aria-hidden="true"/></button>}</div>{applied&&quote&&!promoInvalid&&<small className="success">Promo {applied} diterapkan.</small>}{promoInvalid&&<small role="alert" className="promo-error">{quoteErr}</small>}</fieldset>
     <fieldset disabled={busy}><legend>Metode checkout</legend><div className="split-options">
-      <label className={'pick '+(method==='whatsapp'&&catalog.methods.whatsapp?'chosen':'')}><input type="radio" name="method" disabled={!catalog.methods.whatsapp} checked={method==='whatsapp'&&catalog.methods.whatsapp} onChange={()=>setMethod('whatsapp')}/><MessageCircle size={17}/> WhatsApp</label>
-      <label className={'pick '+(method==='qris'&&catalog.methods.qris?'chosen':'')}><input type="radio" name="method" disabled={!catalog.methods.qris} checked={method==='qris'&&catalog.methods.qris} onChange={()=>setMethod('qris')}/><QrCode size={17}/> QRIS {catalog.methods.qris ? (catalog.methods.qrisProvider==='merchant'?'warung':catalog.methods.sandbox?'(uji coba)':'') : ''}</label>
-    </div>{!catalog.methods.whatsapp&&!catalog.methods.qris&&<p className="notice warning"><CircleHelp size={17}/> Metode checkout belum diaktifkan oleh warung.</p>}</fieldset>
-    {quoteErr && <p role="alert" className="notice warning">{quoteErr}</p>}{error && <p role="alert" className="notice warning">{error}</p>}
-    <div className="order-totals"><div><span>Subtotal</span><span>{quote?rupiah(quote.subtotal):'Menghitung…'}</span></div>{mode==='delivery'&&quote&&<div><span>Ongkir</span><span>{quote.deliveryFee?rupiah(quote.deliveryFee):'Gratis'}</span></div>}{!!quote?.discount&&<div><span>Diskon</span><span>−{rupiah(quote.discount)}</span></div>}<div><strong>Total</strong><strong>{quote?rupiah(quote.total):'Menghitung…'}</strong></div></div>
-    <button className="button dark wide" type="submit" disabled={busy||!quote||!catalog.methods[method]}>{busy?'Memproses…':method==='whatsapp'?'Pesan lewat WhatsApp':catalog.methods.qris?'Buat QRIS':'Checkout belum aktif'}</button>
+      <label className={'pick '+(method==='whatsapp'&&catalog.methods.whatsapp?'chosen':'')}><input type="radio" name="method" disabled={!catalog.methods.whatsapp} checked={method==='whatsapp'&&catalog.methods.whatsapp} onChange={()=>setMethod('whatsapp')}/><MessageCircle size={17} aria-hidden="true"/> WhatsApp</label>
+      <label className={'pick '+(method==='qris'&&catalog.methods.qris?'chosen':'')}><input type="radio" name="method" disabled={!catalog.methods.qris} checked={method==='qris'&&catalog.methods.qris} onChange={()=>setMethod('qris')}/><QrCode size={17} aria-hidden="true"/> QRIS {catalog.methods.qris ? (catalog.methods.qrisProvider==='merchant'?'warung':catalog.methods.sandbox?'(uji coba)':'') : ''}</label>
+    </div>{!catalog.methods.whatsapp&&!catalog.methods.qris&&<p className="notice warning"><CircleHelp size={17} aria-hidden="true"/> Metode checkout belum diaktifkan oleh warung.</p>}</fieldset>
+    {error && <p role="alert" tabIndex={-1} ref={errorRef} className="notice warning">{error}</p>}
+    <div className="checkout-bar">
+      {quoteErr&&!promoInvalid&&<p role="alert" className="notice warning">{quoteErr}</p>}
+      <div className="order-totals" aria-live="polite"><div><span>Subtotal</span><span>{quote?rupiah(quote.subtotal):'Menghitung…'}</span></div>{mode==='delivery'&&quote&&<div><span>Ongkir</span><span>{quote.deliveryFee?rupiah(quote.deliveryFee):'Gratis'}</span></div>}{!!quote?.discount&&<div><span>Diskon</span><span>−{rupiah(quote.discount)}</span></div>}<div><strong>Total</strong><strong>{quote?rupiah(quote.total):'Menghitung…'}</strong></div></div>
+      <button className="button dark wide" type="submit" aria-busy={busy||undefined} disabled={busy||!quote||!!quoteErr||!catalog.methods[method]}>{busy?'Memproses…':method==='whatsapp'?'Pesan lewat WhatsApp':catalog.methods.qris?'Buat QRIS':'Checkout belum aktif'}</button>
+    </div>
   </form></Modal>
 }

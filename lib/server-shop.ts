@@ -167,6 +167,7 @@ export function presentOrder(order: Order, whatsapp: string) {
     qr: qrisProvider === 'midtrans' && order.payment === 'pending' ? order.qr : null,
     qrisPayload: qrisProvider === 'merchant' && order.payment === 'merchant_pending' && order.state !== 'canceled' ? order.qr : null,
     qrisProvider, merchantName: info.merchantName ?? null, sandbox: info.sandbox,
+    items: info.items,
     whatsapp: whatsapp ? `https://wa.me/${whatsapp}?text=${encodeURIComponent(lines.join('\n'))}` : null,
   }
 }

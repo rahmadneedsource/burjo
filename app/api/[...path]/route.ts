@@ -1,9 +1,10 @@
 import { getRuntimeEnv } from '../../../lib/runtime-env'
+import { clearSessionCookie, createSessionCookie, isAdminRequest, verifyPassword } from '../../../lib/admin-auth'
 import { clean, confirmMerchantPayment, createOrder, db, findOrder, getShop, isMerchantQris, orderDetails, presentOrder, publicShop, quoteOrder, readyMethods, saveShop, ShopError, signature, syncPayment, validateProduct, validatePromo, validateQrisSettings, validateSettings } from '../../../lib/server-shop'
 import type { Order } from '../../../lib/server-shop'
 
 export const dynamic = 'force-dynamic'
-const json = (data: unknown, status = 200) => Response.json(data, {status, headers:{'Cache-Control':'no-store'}})
+const json = (data: unknown, status = 200, headers: Record<string,string> = {}) => Response.json(data, {status, headers:{'Cache-Control':'no-store', ...headers}})
 const idFormat = /^bj-[a-f0-9]{16}$/
 const imageId = /^[a-f0-9-]{36}$/
 const waiting = new Set(['pending','creating'])
@@ -37,21 +38,51 @@ async function readBody(request: Request) {
 }
 
 function isAdmin(request: Request) {
-  const env = getRuntimeEnv()
-  if (process.env.NODE_ENV !== 'production' && env.LOCAL_ADMIN === 'yes' && ['terminal.local','127.0.0.1','localhost'].includes(new URL(request.url).hostname)) return true
-  if (env.SITES_TRUSTED_INGRESS !== 'yes') return false
-  const siteId = request.headers.get('oai-authenticated-user-id')
-  const email = request.headers.get('oai-authenticated-user-email')?.trim().toLowerCase()
-  return Boolean(siteId && email && email === env.ADMIN_EMAIL?.trim().toLowerCase())
+  return isAdminRequest(request)
+}
+
+// Per-instance sliding window. Enough to blunt checkout and login bursts on one isolate.
+const buckets = new Map<string, { count: number; reset: number }>()
+function allow(key: string, max: number, windowMs: number) {
+  const now = Date.now()
+  const entry = buckets.get(key)
+  if (!entry || entry.reset <= now) {
+    buckets.set(key, { count: 1, reset: now + windowMs })
+    return true
+  }
+  if (entry.count >= max) return false
+  entry.count++
+  return true
+}
+function limited(request: Request, scope: string, max: number, windowMs: number) {
+  const ip = request.headers.get('cf-connecting-ip') || request.headers.get('x-forwarded-for')?.split(',')[0] || request.headers.get('x-real-ip') || 'local'
+  if (!allow(ip.trim() + ':' + scope, max, windowMs)) throw new ShopError('Terlalu banyak permintaan. Coba lagi sebentar.', 429)
 }
 
 const steps: Record<string,string[]> = {new:['accepted','canceled'],accepted:['preparing','canceled'],preparing:['ready','canceled'],ready:['done','canceled'],done:[],canceled:[]}
 
+async function adminLogin(request: Request) {
+  const env = getRuntimeEnv()
+  limited(request, 'admin-login', 8, 15 * 60_000)
+  if (!env.ADMIN_PASSWORD_HASH) throw new ShopError('Login admin belum disiapkan.', 503)
+  const body = await readBody(request)
+  const password = typeof body.password === 'string' ? body.password : ''
+  if (!password || password.length > 200 || !(await verifyPassword(password, env.ADMIN_PASSWORD_HASH))) {
+    throw new ShopError('Kata sandi salah.', 401)
+  }
+  const cookie = await createSessionCookie()
+  if (!cookie) throw new ShopError('Sesi admin belum disiapkan.', 503)
+  return json({ ok: true }, 200, { 'Set-Cookie': cookie })
+}
+
 async function adminRoute(request: Request, url: URL, path: string[]) {
   const env = getRuntimeEnv()
-  const allowed = isAdmin(request), section = path[1], write = request.method === 'POST'
-  if (section === 'access' && !write) return json({allowed})
-  if (!allowed) throw new ShopError('Masuk dengan akun admin untuk membuka panel.',403)
+  const section = path[1], write = request.method === 'POST'
+  if (section === 'login' && write) return adminLogin(request)
+  if (section === 'logout' && write) return json({ ok: true }, 200, { 'Set-Cookie': clearSessionCookie() })
+  const allowed = await isAdmin(request), access = section === 'access'
+  if (access && !write) return json({ allowed })
+  if (!allowed) throw new ShopError('Masuk dengan kata sandi admin untuk membuka panel.', 403)
   if (section === 'media' && write) {
     if (!env.BUCKET) throw new ShopError('Penyimpanan foto belum tersedia.',503)
     const limits = Number(request.headers.get('content-length') || 0)
@@ -159,6 +190,8 @@ async function handle(request: Request) {
   try {
     if (section === 'midtrans' && path[1] === 'notification' && write) return await midtransNotice(request)
     if (write && request.headers.get('origin') !== url.origin) throw new ShopError('Permintaan ditolak.',403)
+    if (write && section === 'quote') limited(request,'quote',120,60_000)
+    if (write && section === 'checkout') limited(request,'checkout',30,60_000)
     if (section === 'admin') return await adminRoute(request,url,path)
     if (section === 'media' && !write && imageId.test(path[1] || '')) {
       const photo = await getRuntimeEnv().BUCKET?.get(path[1])
